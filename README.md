@@ -2,7 +2,7 @@
 cách chạy:
 bước 1 chạy sever:
 mở terminal nhập: python server.py
-kết quả: [Server] Đang chạy tại cổng 5000...
+kết quả: [Server] Đang chạy tại cổng......
 bước 2:
 mở terminal khác nhập: python client.py
 kết quả:
