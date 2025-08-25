@@ -37,6 +37,51 @@ class TicketApp:
                 btn = tk.Button(self.seat_frame, text=seat, width=6, command=lambda s=seat: self.book_seat(s))
                 btn.grid(row=i, column=j, padx=3, pady=3)
                 self.seat_buttons[seat] = btn
+        # Danh sách vé đã đặt
+        tk.Label(root, text="Vé đã đặt:").grid(row=3, column=0, columnspan=2)
+        self.ticket_list = tk.Text(root, width=45, height=10, state="disabled")
+        self.ticket_list.grid(row=4, column=0, columnspan=2, padx=5, pady=5)
+
+        # Nút refresh
+        tk.Button(root, text="Làm mới", command=self.refresh_seats).grid(row=5, column=0, columnspan=2, pady=5)
+
+        self.refresh_seats()
+
+    def send_request(self, message):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((HOST, PORT))
+                s.sendall(message.encode("utf-8"))
+                data = s.recv(4096).decode("utf-8")
+            return data
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể kết nối server: {e}")
+            return None
+
+    def book_seat(self, seat):
+        name = self.name_var.get().strip()
+        movie = self.movie_var.get()
+        if not name:
+            messagebox.showwarning("Cảnh báo", "Vui lòng nhập tên trước khi đặt vé.")
+            return
+        response = self.send_request(f"BOOK|{name}|{movie}|{seat}")
+        if response and response.startswith("OK"):
+            messagebox.showinfo("Thành công", f"Đặt ghế {seat} thành công!")
+        else:
+            messagebox.showerror("Thất bại", response.split("|")[1] if response else "Lỗi")
+        self.refresh_seats()
+
+    def refresh_seats(self):
+        movie = self.movie_var.get()
+        response = self.send_request(f"LIST|{movie}")
+        if not response:
+            return
+
+        try:
+            bookings = json.loads(response)
+        except:
+            bookings = []
+        
 if __name__ == "__main__":
     root = tk.Tk()
     app = TicketApp(root)
