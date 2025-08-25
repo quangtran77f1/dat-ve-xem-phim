@@ -1,86 +1,96 @@
 import socket
 import threading
 import json
-import os
 
-HOST = "127.0.0.1"
-PORT = 5000
+# Danh sách phim có 30 ghế mỗi phim
+movies = {
+    "Avengers": [f"{row}{num}" for row in ["A","B","C"] for num in range(1, 11)],
+    "Batman":   [f"{row}{num}" for row in ["A","B","C"] for num in range(1, 10+1)],
+    "Spiderman":[f"{row}{num}" for row in ["A","B","C"] for num in range(1, 10+1)]
+}
 
-DATA_FILE = "data.json"
-
-# Dữ liệu bookings lưu theo dạng:
-# {
-#   "Tên phim 1": [ { "name": ..., "seat": ..., "movie": ... }, ...],
-#   "Tên phim 2": [ { ... } ],
-# }
-bookings = {}
-
-# Load dữ liệu từ file
-if os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        bookings = json.load(f)
+# bookings = { "TênPhim": [ { "user": "Tên", "seat": "A1" }, ... ] }
+bookings = {movie: [] for movie in movies}
 
 lock = threading.Lock()
 
-def save_data():
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(bookings, f, indent=4, ensure_ascii=False)
-
 def handle_client(conn, addr):
-    print(f"[KẾT NỐI] Client {addr} đã kết nối.")
+    print(f"[Kết nối] {addr} đã kết nối")
     try:
         while True:
-            data = conn.recv(1024).decode("utf-8")
+            data = conn.recv(1024).decode()
             if not data:
                 break
+            request = json.loads(data)
+            action = request.get("action")
 
-            parts = data.split("|")
-            action = parts[0]
+            response = {"status": "error", "message": "Yêu cầu không hợp lệ"}
 
-            if action == "BOOK":  # BOOK|Tên|Phim|Ghế
-                name, movie, seat = parts[1], parts[2], parts[3]
-                with lock:
-                    if movie not in bookings:
-                        bookings[movie] = []
-
-                    # Kiểm tra ghế có ai đặt trong cùng phim chưa
-                    if any(b["seat"] == seat for b in bookings[movie]):
-                        conn.sendall("FAIL|Ghế đã có người đặt".encode("utf-8"))
+            with lock:
+                if action == "list":
+                    movie = request.get("movie")
+                    if movie in movies:
+                        booked = [b["seat"] for b in bookings[movie]]
+                        response = {"status": "ok", "seats": movies[movie], "booked": booked}
                     else:
-                        bookings[movie].append({"name": name, "movie": movie, "seat": seat})
-                        save_data()
-                        conn.sendall("OK|Đặt vé thành công".encode("utf-8"))
+                        response = {"status": "error", "message": "Phim không tồn tại"}
 
-            elif action == "CANCEL":  # CANCEL|Tên|Phim|Ghế
-                name, movie, seat = parts[1], parts[2], parts[3]
-                with lock:
+                elif action == "book":
+                    movie = request.get("movie")
+                    seat = request.get("seat")
+                    user = request.get("user")
+                    if movie in movies and seat in movies[movie]:
+                        if seat not in [b["seat"] for b in bookings[movie]]:
+                            bookings[movie].append({"user": user, "seat": seat})
+                            response = {"status": "ok", "message": f"Đặt ghế {seat} thành công cho {user}"}
+                        else:
+                            response = {"status": "error", "message": "Ghế đã có người đặt"}
+                    else:
+                        response = {"status": "error", "message": "Phim hoặc ghế không hợp lệ"}
+
+                elif action == "mytickets":
+                    user = request.get("user")
+                    user_tickets = []
+                    for m, blist in bookings.items():
+                        for b in blist:
+                            if b["user"] == user:
+                                user_tickets.append({"movie": m, "seat": b["seat"]})
+                    response = {"status": "ok", "tickets": user_tickets}
+
+                elif action == "cancel":
+                    user = request.get("user")
+                    movie = request.get("movie")
+                    seat = request.get("seat")
                     if movie in bookings:
-                        bookings[movie] = [b for b in bookings[movie] if not (b["name"] == name and b["seat"] == seat)]
-                        save_data()
-                conn.sendall("OK|Hủy vé thành công".encode("utf-8"))
+                        before = len(bookings[movie])
+                        bookings[movie] = [b for b in bookings[movie] if not (b["user"] == user and b["seat"] == seat)]
+                        after = len(bookings[movie])
+                        if before != after:
+                            response = {"status": "ok", "message": f"Đã hủy vé {seat} - {movie}"}
+                        else:
+                            response = {"status": "error", "message": "Không tìm thấy vé để hủy"}
+                    else:
+                        response = {"status": "error", "message": "Phim không tồn tại"}
 
-            elif action == "LIST":  # LIST|Phim
-                movie = parts[1]
-                with lock:
-                    movie_bookings = bookings.get(movie, [])
-                conn.sendall(json.dumps(movie_bookings, ensure_ascii=False).encode("utf-8"))
+            conn.sendall(json.dumps(response).encode())
 
     except Exception as e:
-        print(f"[LỖI] {e}")
+        print("Lỗi:", e)
     finally:
         conn.close()
-        print(f"[NGẮT] Client {addr} đã ngắt kết nối.")
+        print(f"[Ngắt kết nối] {addr}")
 
-
-def start():
-    print(f"[KHỞI ĐỘNG] Server chạy tại {HOST}:{PORT}")
+def start_server():
+    host = "127.0.0.1"
+    port = 65432
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind((HOST, PORT))
+    server.bind((host, port))
     server.listen()
+    print(f"[Server] Đang lắng nghe tại {host}:{port}")
+
     while True:
         conn, addr = server.accept()
-        thread = threading.Thread(target=handle_client, args=(conn, addr))
-        thread.start()
+        threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
 
 if __name__ == "__main__":
-    start()
+    start_server()
