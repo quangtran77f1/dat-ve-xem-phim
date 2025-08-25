@@ -81,6 +81,26 @@ class TicketApp:
             bookings = json.loads(response)
         except:
             bookings = []
+        # Reset tất cả ghế
+        for btn in self.seat_buttons.values():
+            btn.config(state="normal", bg="SystemButtonFace")
+
+        # Ghế đã đặt
+        self.ticket_list.config(state="normal")
+        self.ticket_list.delete(1.0, tk.END)
+
+        for b in bookings:
+            seat = b["seat"]
+            name = b["name"]
+            movie = b["movie"]
+
+            if seat in self.seat_buttons:
+                self.seat_buttons[seat].config(state="disabled", bg="red")
+
+            # Hiển thị danh sách vé
+            self.ticket_list.insert(tk.END, f"Tên: {name} | Phim: {movie} | Ghế: {seat}\n")
+
+        self.ticket_list.config(state="disabled")
         
 if __name__ == "__main__":
     root = tk.Tk()
